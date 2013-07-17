@@ -145,15 +145,9 @@ getCatalogImpl(std::vector<index_t*> inds,
              "Failed to index_close_fds() an astrometry_net_data file");
              }
            */
-           if (index->quads && index->quads->fb && index->quads->fb->fid) {
-               _close(index->quads->fb->fid);
-           }
-           if (index->codekd && index->codekd->tree && index->codekd->tree->io) {
-               _close(index->codekd->tree->io);
-           }
-           if (index->starkd && index->starkd->tree && index->starkd->tree->io) {
-               _close(index->starkd->tree->io);
-           }
+           _close(index->quads->fb->fid);
+           _close(index->codekd->tree->io);
+           _close(index->starkd->tree->io);
        }
        void _close(FILE* & fid) {
            if (fid) {
