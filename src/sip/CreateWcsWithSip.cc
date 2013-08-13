@@ -128,7 +128,7 @@ CreateWcsWithSip<MatchT>::CreateWcsWithSip(
     _newWcs()
 {
     if  (order < 2) {
-        throw LSST_EXCEPT(except::OutOfRangeException, "SIP must be at least 2nd order");
+        throw LSST_EXCEPT(except::OutOfRangeException, "SIP must be at least 2nd order");        
     }
     if (_sipOrder > 9) {
         throw LSST_EXCEPT(except::OutOfRangeException,
