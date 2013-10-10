@@ -694,7 +694,7 @@ class Astrometry(object):
         matchList = astromSip.cleanBadPoints.clean(matchList, wcs, nsigma=clean)
         return matchList
 
-    def getColumnName(self, filterName, columnMap, default=None):
+    def getColumnName(self, filterName, columnMap, default=None, description="magnitude"):
         '''
         Returns the column name in the astrometry_net_data index file that will be used
         for the given filter name.
@@ -702,13 +702,14 @@ class Astrometry(object):
         @param filterName   Name of filter used in exposure
         @param columnMap    Dict that maps filter names to column names
         @param default      Default column name
+        @param description  Simple description of column, for warning messages
         '''
         filterName = self.config.filterMap.get(filterName, filterName) # Exposure filter --> desired filter
         try:
             return columnMap[filterName] # Desired filter --> a_n_d column name
         except KeyError:
-            self.log.warn("No column in configuration for filter '%s'; using default '%s'" %
-                          (filterName, default))
+            self.log.warn("No %s column in configuration for filter '%s'; using default '%s'" %
+                          (description, filterName, default))
             return default
 
     def getCatalogFilterName(self, filterName):
@@ -753,9 +754,10 @@ class Astrometry(object):
         varCol = self.andConfig.variableColumn
         idcolumn = self.andConfig.idColumn
 
-        magCol = self.getColumnName(filterName, self.andConfig.magColumnMap, self.andConfig.defaultMagColumn)
+        magCol = self.getColumnName(filterName, self.andConfig.magColumnMap, self.andConfig.defaultMagColumn,
+                                    description="magnitude")
         magerrCol = self.getColumnName(filterName, self.andConfig.magErrorColumnMap,
-                                       self.andConfig.defaultMagErrorColumn)
+                                       self.andConfig.defaultMagErrorColumn, description="magnitude error")
 
         if allFluxes:
             names = []
