@@ -264,7 +264,10 @@ class PhotoCalTask(pipeBase.Task):
                 ct = None
                 
         if not ct:
-            fluxNames = ["flux"]
+            if filterName in refSchema:
+                fluxNames = [filterName]
+            else:
+                fluxNames = ["flux"]
 
         refFluxes = []
         refFluxErrors = []
