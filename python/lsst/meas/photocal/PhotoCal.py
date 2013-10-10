@@ -251,13 +251,7 @@ class PhotoCalTask(pipeBase.Task):
 
         if ct:                          # we have a colour term to worry about
             fluxNames = [ct.primary, ct.secondary]
-            missingFluxes = []
-            for flux in fluxNames:
-                try:
-                    refSchema.find(flux).key
-                except KeyError:
-                    missingFluxes.append(flux)
-
+            missingFluxes = [flux for flux in fluxNames if not flux in refSchema]
             if missingFluxes:
                 self.log.warn("Source catalog does not have fluxes for %s; ignoring color terms" %
                               " ".join(missingFluxes))
