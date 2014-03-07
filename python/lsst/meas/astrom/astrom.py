@@ -150,7 +150,9 @@ class Astrometry(object):
                 y0 = ey0
             self._debug('Got exposure x0,y0 = %i,%i' % (ex0,ey0))
             if filterName is None:
-                filterName = exposure.getFilter().getName()
+                # This filterName workaround will be replaced by exposure.getFilter().getCanonicalName()
+                # or something similar when ticket #2113 is addressed
+                filterName = afwImage.Filter(exposure.getFilter().getId()).getName()
                 self._debug('Setting filterName = "%s" from exposure metadata' % str(filterName))
             if imageSize is None:
                 imageSize = (exposure.getWidth(), exposure.getHeight())
