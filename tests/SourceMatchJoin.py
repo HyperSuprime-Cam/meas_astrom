@@ -31,9 +31,12 @@ except NameError:
 
 
 class matchlistTestCase(unittest.TestCase):
+
     def setUp(self):
         # Load sample input from disk
         mypath = eups.productDir("meas_astrom")
+        # Ensure the filter we'll use is defined
+        afwImg.utils.defineFilter("i", 767)
         # Set up local astrometry_net_data
         datapath = os.path.join(mypath, 'tests', 'astrometry_net_data', 'photocal')
         print 'Setting up astrometry_net_data:', datapath

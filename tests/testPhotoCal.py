@@ -56,7 +56,8 @@ class PhotoCalTest(unittest.TestCase):
 
     def setUp(self):
         self.conf = measAstrom.MeasAstromConfig()
-        
+        # Ensure the filter we need has been predefined
+        afwImg.utils.defineFilter('i', 767)
         # Load sample input from disk
         mypath = eups.productDir("meas_astrom")
         path = os.path.join(mypath, "examples")
