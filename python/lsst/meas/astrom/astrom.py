@@ -221,7 +221,7 @@ class Astrometry(object):
 
         cat = self.getReferenceSourcesForWcs(
             wcs, imageSize, filterName, pixelMargin, x0=x0, y0=y0,
-            allFluxes = (True if Colorterm.getColorterm(filterName) else False)
+            allFluxes = (True if Colorterm.getColorterm(filterName) else True)
             )
         catids = [src.getId() for src in cat]
         uids = set(catids)
@@ -1017,7 +1017,7 @@ def _createMetadata(width, height, x0, y0, wcs, filterName):
     #meta.add('MAGERR', magerrName, 'magnitude error name for tagalong data')
     return meta
 
-def readMatches(butler, dataId, sourcesName='icSrc', matchesName='icMatch', config=MeasAstromConfig(),
+def readMatches(butler, dataId, sourcesName='icSrc', matchesName='icMatch', config=MeasAstromConfig(), allFluxes=False,
                 sourcesFlags=afwTable.SOURCE_IO_NO_FOOTPRINTS):
     """Read matches, sources and catalogue; combine.
 
@@ -1031,4 +1031,4 @@ def readMatches(butler, dataId, sourcesName='icSrc', matchesName='icMatch', conf
     sources = butler.get(sourcesName, dataId, flags=sourcesFlags)
     packedMatches = butler.get(matchesName, dataId)
     astrom = Astrometry(config)
-    return astrom.joinMatchListWithCatalog(packedMatches, sources)
+    return astrom.joinMatchListWithCatalog(packedMatches, sources, allFluxes)
