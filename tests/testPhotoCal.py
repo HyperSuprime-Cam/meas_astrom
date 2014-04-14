@@ -52,6 +52,33 @@ import lsst.meas.photocal          as photocal
 
 from lsst.pex.exceptions import LsstCppException
 
+def copyCatalogAddingField(srcCat, extraFluxColumn):
+    """Copy a catalog srcCat, adding (but not setting) an extra flux column"""
+    scm = afwTable.SchemaMapper(srcCat.getSchema())
+    scm.addMinimalSchema(srcCat.getSchema(), True)
+    scm.addOutputField(afwTable.Field["D"](extraFluxColumn, "The name used by the PhotoCal code"))
+    scm.addOutputField(afwTable.Field["D"](extraFluxColumn + ".err", "error for %s" % extraFluxColumn))
+    scm.addOutputField(afwTable.Field["Flag"](extraFluxColumn + ".flags",
+                                              "flags for %s" % extraFluxColumn))
+
+    cat = afwTable.SourceCatalog(scm.getOutputSchema())
+    #
+    # Define the needed slots
+    #
+    cat.table.defineCentroid(srcCat.getCentroidDefinition())
+    for define, getDefinition in [(cat.table.defineApFlux,    srcCat.table.getApFluxDefinition),
+                                  (cat.table.defineInstFlux,  srcCat.table.getInstFluxDefinition),
+                                  (cat.table.defineModelFlux, srcCat.table.getModelFluxDefinition),
+                                  (cat.table.definePsfFlux,   srcCat.table.getPsfFluxDefinition),]:
+        try:
+            define(getDefinition())
+        except Exception as e:
+            pass
+
+    cat.extend(srcCat, True, scm)
+
+    return cat
+
 class PhotoCalTest(unittest.TestCase):
 
     def setUp(self):
@@ -62,7 +89,15 @@ class PhotoCalTest(unittest.TestCase):
         mypath = eups.productDir("meas_astrom")
         path = os.path.join(mypath, "examples")
         self.srcCat = afwTable.SourceCatalog.readFits(os.path.join(path, "v695833-e0-c000.xy.fits"))
-        self.srcCat.table.defineApFlux("flux.psf")
+        #
+        # The PhotoCal code uses algorithm names (e.g. "flux.sinc") not slots, so we need to add
+        # further columns to self.srcCat
+        #
+        extraFluxColumn = "flux.sinc"
+        self.srcCat = copyCatalogAddingField(self.srcCat, extraFluxColumn)
+
+        self.srcCat.get(extraFluxColumn)[:] = self.srcCat.getPsfFlux()
+        self.srcCat.get(extraFluxColumn + ".err")[:] = self.srcCat.getPsfFluxErr()
         
         # The .xy.fits file has sources in the range ~ [0,2000],[0,4500]
         self.imageSize = (2048, 4612) # approximate
