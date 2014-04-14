@@ -402,6 +402,8 @@ class PhotoCalTask(pipeBase.Task):
 
         npt = len(dmag)
         ngood = npt
+        if scatterPlot > 1:
+            reply = None
         for i in range(self.config.nIter):
             if i > 0:
                 npt = sum(good)
@@ -507,7 +509,7 @@ class PhotoCalTask(pipeBase.Task):
                     fig.show()
 
                     if scatterPlot > 1:
-                        while i == 0 or reply != "c":
+                        while reply != "c":
                             try:
                                 reply = raw_input("Next iteration? [ynhpc] ")
                             except EOFError:
