@@ -22,7 +22,6 @@
 import math, os, sys
 import numpy as np
 
-from lsst.meas.photocal.colorterms import Colorterm
 import lsst.meas.algorithms.utils as malgUtil
 import lsst.pex.logging as pexLog
 import lsst.pex.config as pexConf
@@ -30,6 +29,8 @@ import lsst.pipe.base as pipeBase
 import lsst.afw.table as afwTable
 import lsst.afw.image as afwImage
 import lsst.afw.display.ds9 as ds9
+
+from .colorterms import ColortermLibraryConfig
 
 def checkSourceFlags(source, keys):
     """Return True if the given source has all good flags set and none of the bad flags set.
@@ -75,6 +76,7 @@ class PhotoCalConfig(pexConf.Config):
     useMedian = pexConf.Field(dtype=bool, default=True,
                               doc="use median instead of mean to compute zeropoint")
     nIter = pexConf.Field(dtype=int, default=20, optional=False, doc="number of iterations")
+    colorterms = pexConf.ConfigField(dtype=ColortermLibraryConfig, doc="Library of color terms")
 
 class PhotoCalTask(pipeBase.Task):
     """Calculate the zero point of an exposure given a ReferenceMatchVector.
@@ -225,13 +227,14 @@ class PhotoCalTask(pipeBase.Task):
         return result
 
     @pipeBase.timeMethod
-    def extractMagArrays(self, matches, filterName, keys):
+    def extractMagArrays(self, matches, filterName, keys, version=None):
         """Extract magnitude and magnitude error arrays from the given matches.
 
         @param[in] matches    ReferenceMatchVector object containing reference/source matches
         @param[in] filterName Name of filter being calibrated
         @param[in] keys       Struct of source catalog keys, as returned by getKeys()
-        
+        @param[in] version    astrometry_net_data version, or None (for color terms)
+
         @return Struct containing srcMag, refMag, srcMagErr, refMagErr, and errMag arrays.
         """
         srcFlux = np.array([m.second.get(keys.flux) for m in matches])
@@ -245,7 +248,7 @@ class PhotoCalTask(pipeBase.Task):
 
         refSchema = matches[0].first.schema
         if self.config.applyColorTerms:
-            ct = Colorterm.getColorterm(filterName)
+            ct = self.config.colorterms.selectColorTerm(filterName, version=version)
         else:
             ct = None
 
@@ -285,8 +288,8 @@ class PhotoCalTask(pipeBase.Task):
             refMag =  -2.5*np.log10(refFluxes[0]) # primary
             refMag2 = -2.5*np.log10(refFluxes[1]) # secondary
 
-            refMag = ct.transformMags(filterName, refMag, refMag2)
-            refFluxErr = ct.propagateFluxErrors(filterName, refFluxErrors[0], refFluxErrors[1])
+            refMag = ct.transformMags(refMag, refMag2)
+            refFluxErr = ct.propagateFluxErrors(refFluxErrors[0], refFluxErrors[1])
         else:
             refMag = -2.5*np.log10(refFluxes[0])
 
