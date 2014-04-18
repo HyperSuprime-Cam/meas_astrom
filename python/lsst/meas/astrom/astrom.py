@@ -8,7 +8,6 @@ import lsst.pex.config as pexConfig
 import lsst.afw.geom as afwGeom
 import lsst.afw.table as afwTable
 import lsst.afw.image as afwImage
-from lsst.meas.photocal.colorterms import Colorterm
 import lsst.meas.algorithms.utils as maUtils
 
 from .config import MeasAstromConfig, AstrometryNetDataConfig
@@ -163,7 +162,8 @@ class Astrometry(object):
             y0 = 0
         return filterName, imageSize, x0, y0
 
-    def useKnownWcs(self, sources, wcs=None, exposure=None, filterName=None, imageSize=None, x0=None, y0=None):
+    def useKnownWcs(self, sources, wcs=None, exposure=None, filterName=None, imageSize=None, x0=None, y0=None,
+                    allFluxes=True):
         """
         Returns an InitialAstrometry object, just like determineWcs,
         but assuming the given input WCS is correct.
@@ -220,9 +220,7 @@ class Astrometry(object):
         pixelMargin = 50.
 
         cat = self.getReferenceSourcesForWcs(
-            wcs, imageSize, filterName, pixelMargin, x0=x0, y0=y0,
-            allFluxes = (True if Colorterm.getColorterm(filterName) else True)
-            )
+            wcs, imageSize, filterName, pixelMargin, x0=x0, y0=y0, allFluxes=allFluxes)
         catids = [src.getId() for src in cat]
         uids = set(catids)
         self.log.logdebug('%i reference sources; %i unique IDs' % (len(catids), len(uids)))
@@ -740,7 +738,7 @@ class Astrometry(object):
         return cat
 
 
-    def getReferenceSources(self, ra, dec, radius, filterName, allFluxes=False):
+    def getReferenceSources(self, ra, dec, radius, filterName, allFluxes=True):
         '''
         Searches for reference-catalog sources (in the
         astrometry_net_data files) in the requested RA,Dec region
@@ -936,7 +934,7 @@ class Astrometry(object):
                 keep.append(s)
         return keep
 
-    def joinMatchListWithCatalog(self, packedMatches, sourceCat, allFluxes=False):
+    def joinMatchListWithCatalog(self, packedMatches, sourceCat, allFluxes=True):
         '''
         This function is required to reconstitute a ReferenceMatchVector after being
         unpersisted.  The persisted form of a ReferenceMatchVector is the 
@@ -1017,8 +1015,8 @@ def _createMetadata(width, height, x0, y0, wcs, filterName):
     #meta.add('MAGERR', magerrName, 'magnitude error name for tagalong data')
     return meta
 
-def readMatches(butler, dataId, sourcesName='icSrc', matchesName='icMatch', config=MeasAstromConfig(), allFluxes=False,
-                sourcesFlags=afwTable.SOURCE_IO_NO_FOOTPRINTS):
+def readMatches(butler, dataId, sourcesName='icSrc', matchesName='icMatch', config=MeasAstromConfig(),
+                allFluxes=True, sourcesFlags=afwTable.SOURCE_IO_NO_FOOTPRINTS):
     """Read matches, sources and catalogue; combine.
 
     @param butler Data butler
@@ -1031,4 +1029,4 @@ def readMatches(butler, dataId, sourcesName='icSrc', matchesName='icMatch', conf
     sources = butler.get(sourcesName, dataId, flags=sourcesFlags)
     packedMatches = butler.get(matchesName, dataId)
     astrom = Astrometry(config)
-    return astrom.joinMatchListWithCatalog(packedMatches, sources, allFluxes)
+    return astrom.joinMatchListWithCatalog(packedMatches, sources, allFluxes=allFluxes)
