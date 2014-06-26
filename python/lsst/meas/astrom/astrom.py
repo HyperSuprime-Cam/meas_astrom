@@ -74,6 +74,49 @@ class InitialAstrometry(object):
 class Astrometry(object):
     ConfigClass = MeasAstromConfig
 
+    '''
+    About Astrometry.net index files (astrometry_net_data):
+
+    There are three components of an index file: a list of stars
+    (stored as a star kd-tree), a list of quadrangles of stars ("quad
+    file") and a list of the shapes ("codes") of those quadrangles,
+    stored as a code kd-tree.
+
+    Each index covers a region of the sky, defined by healpix nside
+    and number, and a range of angular scales.  In LSST, we share the
+    list of stars in a part of the sky between multiple indexes.  That
+    is, the star kd-tree is shared between multiple indices (quads and
+    code kd-trees).  In the astrometry.net code, this is called a
+    "multiindex".
+
+    It is possible to "unload" and "reload" multiindex (and index)
+    objects.  When "unloaded", they consume no FILE or mmap resources.
+
+    The multiindex object holds the star kd-tree and gives each index
+    object it holds a pointer to it, so it is necessary to
+    multiindex_reload_starkd() before reloading the indices it holds.
+    The multiindex_unload() method, on the other hand, unloads its
+    starkd and unloads each index it holds.
+    '''
+
+    class _LoadedMIndexes(object):
+        '''
+        A context manager for loaded Astrometry.net multi-index files.
+        This allows us to use a "with" block where we load the files
+        upon entry and close them upon exit.
+        '''
+        def __init__(self, multiInds):
+            self.multiInds = multiInds
+        def __enter__(self):
+            for mi in self.multiInds:
+                #print 'Loading', mi.name
+                mi.reload()
+            return self.multiInds
+        def __exit__(self, typ, val, trace):
+            for mi in self.multiInds:
+                #print 'Unloading', mi.name
+                mi.unload()
+
     def __init__(self,
                  config,
                  andConfig=None,
@@ -92,14 +135,16 @@ class Astrometry(object):
             self.log = pexLog.Log(pexLog.Log.getDefaultLog(),
                                   'meas.astrom',
                                   logLevel)
-
         if andConfig is None:
             # ASSUME SETUP IN EUPS
             dirnm = os.environ.get('ASTROMETRY_NET_DATA_DIR')
             if dirnm is None:
                 raise RuntimeError("astrometry_net_data is not setup")
+
             andConfig = AstrometryNetDataConfig()
             fn = os.path.join(dirnm, 'andConfig.py')
+            if not os.path.exists(fn):
+                raise RuntimeError('astrometry_net_data config file \"%s\" required but not found' % fn)
             andConfig.load(fn)
 
         self.andConfig = andConfig
@@ -107,34 +152,78 @@ class Astrometry(object):
 
     def _readIndexFiles(self):
         import astrometry_net as an
-        self.inds = []
+        # .multiInds: multi-index objects
+        self.multiInds = []
+
+        # merge indexFiles and multiIndexFiles; we'll treat both as
+        # multiindex for simplicity.
+        mifiles = ([(True,[fn,fn]) for fn  in self.andConfig.indexFiles] +
+                     [(False,fns)    for fns in self.andConfig.multiIndexFiles])
+
         nMissing = 0
-        for fn in self.andConfig.indexFiles:
-            self.log.logdebug('Adding index file %s' % fn)
+        for single,fns in mifiles:
+            # First filename in "fns" is star kdtree, the rest are index files.
+            fn = fns[0]
+            if single:
+                self.log.log(self.log.DEBUG, 'Adding index file %s' % fns[0])
+            else:
+                self.log.log(self.log.DEBUG, 'Adding multiindex files %s' % str(fns))
             fn2 = self._getIndexPath(fn)
             if fn2 is None:
-                self.log.logdebug('Unable to find index file %s' % fn)
+                if single:
+                    self.log.logdebug('Unable to find index file %s' % fn)
+                else:
+                    self.log.logdebug('Unable to find star part of multiindex file %s' % fn)
                 nMissing += 1
                 continue
             fn = fn2
-            self.log.logdebug('Path: %s' % fn)
-            ind = an.index_load(fn, an.INDEX_ONLY_LOAD_METADATA, None);
-            if ind:
-                self.inds.append(ind)
-                self.log.logdebug('  index %i, hp %i (nside %i), nstars %i, nquads %i' %
-                                  (ind.indexid, ind.healpix, ind.hpnside, ind.nstars, ind.nquads))
-            else:
-                raise RuntimeError('Failed to read index file: "%s"' % fn)
+            self.log.log(self.log.DEBUG, 'Path: %s' % fn)
 
-        if not self.inds:
+            mi = an.multiindex_new(fn)
+            if mi is None:
+                raise RuntimeError('Failed to read stars from multiindex filename "%s"' % fn)
+            for i,fn in enumerate(fns[1:]):
+                self.log.log(self.log.DEBUG, 'Reading index from multiindex file "%s"' % fn)
+                fn2 = self._getIndexPath(fn)
+                if fn2 is None:
+                    self.log.logdebug('Unable to find index part of multiindex file %s' % fn)
+                    nMissing += 1
+                    continue
+                fn = fn2
+                self.log.log(self.log.DEBUG, 'Path: %s' % fn)
+                if an.multiindex_add_index(mi, fn, an.INDEX_ONLY_LOAD_METADATA):
+                    raise RuntimeError('Failed to read index from multiindex filename "%s"' % fn)
+                ind = mi[i]
+                self.log.log(self.log.DEBUG, '  index %i, hp %i (nside %i), nstars %i, nquads %i' %
+                                (ind.indexid, ind.healpix, ind.hpnside, ind.nstars, ind.nquads))
+            an.multiindex_unload_starkd(mi)
+            self.multiInds.append(mi)
+
+        if len(self.multiInds) == 0:
             self.log.warn('Unable to find any index files')
         elif nMissing > 0:
             self.log.warn('Unable to find %d index files' % nMissing)
-            
+
     def _debug(self, s):
         self.log.log(self.log.DEBUG, s)
     def _warn(self, s):
         self.log.log(self.log.WARN, s)
+
+    def memusage(self, prefix=''):
+        # Not logging at DEBUG: do nothing
+        if self.log.getThreshold() > pexLog.Log.DEBUG:
+            return
+        from astrometry.util.ttime import get_memusage
+        mu = get_memusage()
+        ss = []
+        for key in ['VmPeak', 'VmSize', 'VmRSS', 'VmData']:
+            if key in mu:
+                ss.append(key + ': ' + ' '.join(mu[key]))
+        if 'mmaps' in mu:
+            ss.append('Mmaps: %i' % len(mu['mmaps']))
+        if 'mmaps_total' in mu:
+            ss.append('Mmaps: %i kB' % (mu['mmaps_total'] / 1024))
+        self.log.logdebug(prefix + 'Memory: ' + ', '.join(ss))
 
     def setAndConfig(self, andconfig):
         self.andConfig = andconfig
@@ -162,8 +251,7 @@ class Astrometry(object):
             y0 = 0
         return filterName, imageSize, x0, y0
 
-    def useKnownWcs(self, sources, wcs=None, exposure=None, filterName=None, imageSize=None, x0=None, y0=None,
-                    allFluxes=True):
+    def useKnownWcs(self, sources, wcs=None, exposure=None, filterName=None, imageSize=None, x0=None, y0=None):
         """
         Returns an InitialAstrometry object, just like determineWcs,
         but assuming the given input WCS is correct.
@@ -219,8 +307,7 @@ class Astrometry(object):
                                                           x0=x0, y0=y0)
         pixelMargin = 50.
 
-        cat = self.getReferenceSourcesForWcs(
-            wcs, imageSize, filterName, pixelMargin, x0=x0, y0=y0, allFluxes=allFluxes)
+        cat = self.getReferenceSourcesForWcs(wcs, imageSize, filterName, pixelMargin, x0=x0, y0=y0)
         catids = [src.getId() for src in cat]
         uids = set(catids)
         self.log.logdebug('%i reference sources; %i unique IDs' % (len(catids), len(uids)))
@@ -487,9 +574,6 @@ class Astrometry(object):
             # (we use the default skyUnit of degrees as per WCS standard)
             aff = wcs.linearizePixelToSky(crval)
             cd = aff.getLinear().getMatrix()
-            print 'CRVAL:', crval
-            print 'CRPIX:', crpix
-            print 'CD', cd
             wcs = afwImage.Wcs(crval, crpix, cd)
                 
         return self.getSipWcsFromCorrespondences(wcs, cref, csrc, (W,H),
@@ -717,8 +801,7 @@ class Astrometry(object):
         return self.getColumnName(filterName, self.andConfig.magColumnMap, self.andConfig.defaultMagColumn)
 
 
-    def getReferenceSourcesForWcs(self, wcs, imageSize, filterName, pixelMargin=50,
-                                  x0=0, y0=0, trim=True, allFluxes=True):
+    def getReferenceSourcesForWcs(self, wcs, imageSize, filterName, pixelMargin=50, x0=0, y0=0, trim=True):
         W,H = imageSize
         xc, yc = W/2. + 0.5, H/2. + 0.5
         rdc = wcs.pixelToSky(x0 + xc, y0 + yc)
@@ -728,7 +811,7 @@ class Astrometry(object):
         pixelScale = wcs.pixelScale()
         rad = pixelScale * (math.hypot(W,H)/2. + pixelMargin)
         self._debug('Getting reference sources using radius of %.3g deg' % rad.asDegrees())
-        cat = self.getReferenceSources(ra, dec, rad, filterName, allFluxes=allFluxes)
+        cat = self.getReferenceSources(ra, dec, rad, filterName)
         # NOTE: reference objects don't have (x,y) anymore, so we can't apply WCS to set x,y positions
         if trim:
             # cut to image bounds + margin.
@@ -738,7 +821,7 @@ class Astrometry(object):
         return cat
 
 
-    def getReferenceSources(self, ra, dec, radius, filterName, allFluxes=True):
+    def getReferenceSources(self, ra, dec, radius, filterName):
         '''
         Searches for reference-catalog sources (in the
         astrometry_net_data files) in the requested RA,Dec region
@@ -748,8 +831,6 @@ class Astrometry(object):
         
         Returns: an lsst.afw.table.SimpleCatalog of reference objects
         '''
-        solver = self._getSolver()
-
         sgCol = self.andConfig.starGalaxyColumn
         varCol = self.andConfig.variableColumn
         idcolumn = self.andConfig.idColumn
@@ -759,7 +840,7 @@ class Astrometry(object):
         magerrCol = self.getColumnName(filterName, self.andConfig.magErrorColumnMap,
                                        self.andConfig.defaultMagErrorColumn, description="magnitude error")
 
-        if allFluxes:
+        if self.config.allFluxes:
             names = []
             mcols = []
             ecols = []
@@ -797,17 +878,21 @@ class Astrometry(object):
          change the way the index files are configured to take
          advantage of this functionality.  Once this is in place, we
          can eliminate the horrid ID checking and deduplication (in solver.getCatalog()).
-         -multiindex files will be specified in the
-          AstrometryNetDatConfig.multiIndexFiles list-of-lists; first
-          element is the filename containing the stars, subsequent
-          elements are filenames containing the index structures.
-          We may be able to backwards-compatibly build this from the flat indexFiles
-          list if we assume things about the filenames.
         '''
-        cat = solver.getCatalog(*((self.inds, ra.asDegrees(), dec.asDegrees(),
-                                   radius.asDegrees(), idcolumn,)
-                                  + margs
-                                  + (sgCol, varCol)))
+
+        solver = self._getSolver()
+
+        # Find multi-index files within range
+        raDecRadius = (ra.asDegrees(), dec.asDegrees(), radius.asDegrees())
+        multiInds = self._getMIndexesWithinRange(*raDecRadius)
+
+        with Astrometry._LoadedMIndexes(multiInds):
+            # We just want to pass the star kd-trees, so just pass the
+            # first element of each multi-index.
+            inds = [mi[0] for mi in multiInds]
+
+            cat = solver.getCatalog(*((inds,) + raDecRadius + (idcolumn,)
+                                      + margs + (sgCol, varCol)))
         del solver
         return cat
 
@@ -837,12 +922,14 @@ class Astrometry(object):
         solver.setMaxStars(self.config.maxStars)
         solver.setImageSize(*imageSize)
         solver.setMatchThreshold(self.config.matchThreshold)
+        raDecRadius = None
         if radecCenter is not None:
-            ra = radecCenter.getLongitude().asDegrees()
-            dec = radecCenter.getLatitude().asDegrees()
-            solver.setRaDecRadius(ra, dec, searchRadius.asDegrees())
+            raDecRadius = (radecCenter.getLongitude().asDegrees(),
+                        radecCenter.getLatitude().asDegrees(),
+                        searchRadius.asDegrees())
+            solver.setRaDecRadius(*raDecRadius)
             self.log.logdebug('Searching for match around RA,Dec = (%g, %g) with radius %g deg' %
-                              (ra, dec, searchRadius.asDegrees()))
+                              raDecRadius)
 
         if pixelScale is not None:
             dscale = self.config.pixelScaleUncertainty
@@ -857,15 +944,43 @@ class Astrometry(object):
             solver.setParity(parity)
             self.log.logdebug('Searching for match with parity = ' + str(parity))
 
-        solver.addIndices(self.inds)
-        active = solver.getActiveIndexFiles()
-        self.log.logdebug('Searching for match in %i of %i index files: [ ' %
-                          (len(active), len(self.inds)) +
-                          ', '.join(ind.indexname for ind in active) + ' ]')
+        # Find and load index files within RA,Dec range and scale range.
+        if raDecRadius is not None:
+            multiInds = self._getMIndexesWithinRange(*raDecRadius)
+        else:
+            multiInds = self.multiInds
+        qlo,qhi = solver.getQuadSizeLow(), solver.getQuadSizeHigh()
+        ntotal = sum([len(mi) for mi in self.multiInds])
 
-        cpulimit = self.config.maxCpuTime
+        toload_multiInds = set()
+        toload_inds = []
+        for mi in multiInds:
+            for i in range(len(mi)):
+                ind = mi[i]
+                if not ind.overlapsScaleRange(qlo, qhi):
+                    continue
+                toload_multiInds.add(mi)
+                toload_inds.append(ind)
 
-        solver.run(cpulimit)
+        with Astrometry._LoadedMIndexes(toload_multiInds):
+            active = []
+            for ind in toload_inds:
+                ind.reload()
+                active.append(ind.indexname)
+                solver.addIndex(ind)
+
+                self.log.logdebug('Searching for match in %i of %i index files: [ %s ]' %
+                                  (len(active), ntotal, ', '.join(active)))
+
+            self.memusage('Index files loaded: ')
+
+            cpulimit = self.config.maxCpuTime
+            solver.run(cpulimit)
+
+            self.memusage('Solving finished: ')
+
+        self.memusage('Index files unloaded: ')
+
         if solver.didSolve():
             self.log.logdebug('Solved!')
             wcs = solver.getWcs()
@@ -907,6 +1022,18 @@ class Astrometry(object):
         else:
             return None
 
+    def _getMIndexesWithinRange(self, ra, dec, radius):
+        '''
+        ra,dec,radius: [deg], spatial cut based on the healpix of the index
+
+        Returns list of multiindex objects within range.
+        '''
+        good = []
+        for mi in self.multiInds:
+            if mi.isWithinRange(ra, dec, radius):
+                good.append(mi)
+        return good
+
     def _getSolver(self):
         import astrometry_net as an
         solver = an.solver_new()
@@ -934,7 +1061,7 @@ class Astrometry(object):
                 keep.append(s)
         return keep
 
-    def joinMatchListWithCatalog(self, packedMatches, sourceCat, allFluxes=True):
+    def joinMatchListWithCatalog(self, packedMatches, sourceCat):
         '''
         This function is required to reconstitute a ReferenceMatchVector after being
         unpersisted.  The persisted form of a ReferenceMatchVector is the 
@@ -956,8 +1083,6 @@ class Astrometry(object):
         @param[in,out] sourceCat  Source catalog used for the 'second' side of the matches
                                   (an lsst.afw.table.SourceCatalog).  As a side effect,
                                   the catalog will be sorted by ID.
-        @param[in] allFluxes      Include all fluxes (and their errors) available in the catalog
-                                  in the returned reference objects
         
         @return An lsst.afw.table.ReferenceMatchVector of denormalized matches.
         '''
@@ -972,7 +1097,7 @@ class Astrometry(object):
         rad = matchmeta.getDouble('RADIUS') * afwGeom.degrees
         self.log.logdebug('Searching RA,Dec %.3f,%.3f, radius %.1f arcsec, filter "%s"' %
                           (ra.asDegrees(), dec.asDegrees(), rad.asArcseconds(), filterName))
-        refCat = self.getReferenceSources(ra, dec, rad, filterName, allFluxes=allFluxes)
+        refCat = self.getReferenceSources(ra, dec, rad, filterName)
         self.log.logdebug('Found %i reference catalog sources in range' % len(refCat))
         refCat.sort()
         sourceCat.sort()
@@ -992,13 +1117,6 @@ def _createMetadata(width, height, x0, y0, wcs, filterName):
     """
     meta = dafBase.PropertyList()
 
-    #andata = os.environ.get('ASTROMETRY_NET_DATA_DIR')
-    #if andata is None:
-    #    meta.add('ANEUPS', 'none', 'ASTROMETRY_NET_DATA_DIR')
-    #else:
-    #    andata = os.path.basename(andata)
-    #    meta.add('ANEUPS', andata, 'ASTROMETRY_NET_DATA_DIR')
-
     # cache: field center and size.
     cx,cy = x0 + 0.5 + width/2., y0 + 0.5 + height/2.
     radec = wcs.pixelToSky(cx, cy).toIcrs()
@@ -1010,13 +1128,10 @@ def _createMetadata(width, height, x0, y0, wcs, filterName):
     meta.add('SMATCHV', 1, 'SourceMatchVector version number')
     if filterName is not None:
         meta.add('FILTER', filterName, 'LSST filter name for tagalong data')
-    #meta.add('STARGAL', stargalName, 'star/galaxy name for tagalong data')
-    #meta.add('VARIABLE', variableName, 'variability name for tagalong data')
-    #meta.add('MAGERR', magerrName, 'magnitude error name for tagalong data')
     return meta
 
 def readMatches(butler, dataId, sourcesName='icSrc', matchesName='icMatch', config=MeasAstromConfig(),
-                allFluxes=True, sourcesFlags=afwTable.SOURCE_IO_NO_FOOTPRINTS):
+                sourcesFlags=afwTable.SOURCE_IO_NO_FOOTPRINTS):
     """Read matches, sources and catalogue; combine.
 
     @param butler Data butler
@@ -1029,4 +1144,4 @@ def readMatches(butler, dataId, sourcesName='icSrc', matchesName='icMatch', conf
     sources = butler.get(sourcesName, dataId, flags=sourcesFlags)
     packedMatches = butler.get(matchesName, dataId)
     astrom = Astrometry(config)
-    return astrom.joinMatchListWithCatalog(packedMatches, sources, allFluxes=allFluxes)
+    return astrom.joinMatchListWithCatalog(packedMatches, sources)

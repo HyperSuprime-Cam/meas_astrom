@@ -64,6 +64,10 @@ class ColortermTestCase(unittest.TestCase):
         self.sources = dict(g=0.0, r=0.0, true_g=-0.00928), dict(g=0.0, r=-1.0, true_g=-0.09168)
         self.colorterms = hamamatsu
 
+    def tearDown(self):
+        import lsst.meas.astrom.astrometry_net as an
+        an.finalize()
+
     def testTransformSource(self):
         """Check if we can use colour terms"""
 
