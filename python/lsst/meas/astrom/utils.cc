@@ -87,9 +87,6 @@ getCatalogImpl(std::vector<index_t*> inds,
         //printf("mag col \"%s\", \"%s\", \"%s\"\n", mc->name.c_str(), mc->magcol.c_str(), mc->magerrcol.c_str());
     }
     
-   // additional margin on healpixes, in deg.
-   double margin = 1.0;
-
    double xyz[3];
    radecdeg2xyzarr(ra, dec, xyz);
    double r2 = deg2distsq(radius);
