@@ -96,13 +96,13 @@ class PhotoCalTask(pipeBase.Task):
         else:
             self.output = None
 
-    def getKeys(self, schema):
+    def getKeys(self, schema, prefix=""):
         """Return a struct containing the source catalog keys for fields used by PhotoCalTask."""
-        flux = schema.find(self.config.fluxField).key
-        fluxErr = schema.find(self.config.fluxField + ".err").key
-        goodFlags = [schema.find(name).key for name in self.config.goodFlags]
-        badFlags = [schema.find(self.config.fluxField + ".flags").key]
-        badFlags.extend(schema.find(name).key for name in self.config.badFlags)
+        flux = schema.find(prefix + self.config.fluxField).key
+        fluxErr = schema.find(prefix + self.config.fluxField + ".err").key
+        goodFlags = [schema.find(prefix + name).key for name in self.config.goodFlags]
+        badFlags = [schema.find(prefix + self.config.fluxField + ".flags").key]
+        badFlags.extend(schema.find(prefix + name).key for name in self.config.badFlags)
         return pipeBase.Struct(flux=flux, fluxErr=fluxErr, goodFlags=goodFlags, badFlags=badFlags)
 
     @pipeBase.timeMethod
@@ -310,12 +310,13 @@ class PhotoCalTask(pipeBase.Task):
             )
 
     @pipeBase.timeMethod
-    def run(self, exposure, matches):
+    def run(self, exposure, matches, prefix=""):
         """Do photometric calibration - select matches to use and (possibly iteratively) compute
         the zero point.
 
         @param[in]  exposure   Exposure upon which the sources in the matches were detected.
         @param[in]  matches    Input ReferenceMatchVector (will not be modified).
+        @param[in]  prefix     Field name prefix to be included in all flag field names.
         
         @return Struct of:
            calib ------- Calib object containing the zero point
@@ -342,7 +343,7 @@ class PhotoCalTask(pipeBase.Task):
         else:
             frame = None
 
-        keys = self.getKeys(matches[0].second.schema)
+        keys = self.getKeys(matches[0].second.schema, prefix=prefix)
         matches = self.selectMatches(matches, keys, frame=frame)
         arrays = self.extractMagArrays(matches, exposure.getFilter().getName(), keys)
 
