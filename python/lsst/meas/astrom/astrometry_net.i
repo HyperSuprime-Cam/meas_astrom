@@ -26,6 +26,7 @@ Python interface to Astrometry.net
 #include "astrometry/fitstable.h"
 #include "astrometry/log.h"
 #include "astrometry/tic.h"
+#include "astrometry/healpix.h"
 
 #undef ATTRIB_FORMAT
 #undef FALSE
@@ -51,6 +52,7 @@ Python interface to Astrometry.net
 #include "lsst/afw/image/Wcs.h"
 #include "lsst/afw/image/TanWcs.h"
 #include "lsst/afw/geom.h"
+#include "lsst/afw/coord.h"
 
 namespace afwCoord = lsst::afw::coord;
 namespace afwTable = lsst::afw::table;
@@ -184,6 +186,20 @@ void set_an_log(PTR(pexLog::Log) newlog);
     void an_log_set_level(int lvl) {
         log_set_level((log_level)lvl);
     }
+
+    // This is what you SHOULD use...
+    lsst::afw::geom::Angle healpixDistance(int hp, int Nside, lsst::afw::coord::Coord const& coord) {
+        return lsst::afw::geom::Angle(healpix_distance_to_radec(hp, Nside, coord.getLongitude().asDegrees(),
+                                                                coord.getLatitude().asDegrees(), NULL),
+                                      lsst::afw::geom::degrees);
+    }
+    // Convenience overload, since everything in here already works in terms of ra,dec rather than Coord...
+    lsst::afw::geom::Angle healpixDistance(int hp, int Nside, double ra, double dec) {
+        return lsst::afw::geom::Angle(healpix_distance_to_radec(hp, Nside, ra, dec, NULL),
+                                      lsst::afw::geom::degrees);
+    }
+
+
 %}
 
 %extend multiindex_t {
