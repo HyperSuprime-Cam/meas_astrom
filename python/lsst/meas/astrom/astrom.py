@@ -151,58 +151,8 @@ class Astrometry(object):
         self._readIndexFiles()
 
     def _readIndexFiles(self):
-        import astrometry_net as an
-        # .multiInds: multi-index objects
-        self.multiInds = []
-
-        # merge indexFiles and multiIndexFiles; we'll treat both as
-        # multiindex for simplicity.
-        mifiles = ([(True,[fn,fn]) for fn  in self.andConfig.indexFiles] +
-                     [(False,fns)    for fns in self.andConfig.multiIndexFiles])
-
-        nMissing = 0
-        for single,fns in mifiles:
-            # First filename in "fns" is star kdtree, the rest are index files.
-            fn = fns[0]
-            if single:
-                self.log.log(self.log.DEBUG, 'Adding index file %s' % fns[0])
-            else:
-                self.log.log(self.log.DEBUG, 'Adding multiindex files %s' % str(fns))
-            fn2 = self._getIndexPath(fn)
-            if fn2 is None:
-                if single:
-                    self.log.logdebug('Unable to find index file %s' % fn)
-                else:
-                    self.log.logdebug('Unable to find star part of multiindex file %s' % fn)
-                nMissing += 1
-                continue
-            fn = fn2
-            self.log.log(self.log.DEBUG, 'Path: %s' % fn)
-
-            mi = an.multiindex_new(fn)
-            if mi is None:
-                raise RuntimeError('Failed to read stars from multiindex filename "%s"' % fn)
-            for i,fn in enumerate(fns[1:]):
-                self.log.log(self.log.DEBUG, 'Reading index from multiindex file "%s"' % fn)
-                fn2 = self._getIndexPath(fn)
-                if fn2 is None:
-                    self.log.logdebug('Unable to find index part of multiindex file %s' % fn)
-                    nMissing += 1
-                    continue
-                fn = fn2
-                self.log.log(self.log.DEBUG, 'Path: %s' % fn)
-                if an.multiindex_add_index(mi, fn, an.INDEX_ONLY_LOAD_METADATA):
-                    raise RuntimeError('Failed to read index from multiindex filename "%s"' % fn)
-                ind = mi[i]
-                self.log.log(self.log.DEBUG, '  index %i, hp %i (nside %i), nstars %i, nquads %i' %
-                                (ind.indexid, ind.healpix, ind.hpnside, ind.nstars, ind.nquads))
-            an.multiindex_unload_starkd(mi)
-            self.multiInds.append(mi)
-
-        if len(self.multiInds) == 0:
-            self.log.warn('Unable to find any index files')
-        elif nMissing > 0:
-            self.log.warn('Unable to find %d index files' % nMissing)
+        from lsst.meas.astrom.multiindex import AstrometryNetCatalog
+        self.multiInds = AstrometryNetCatalog.fromEnvironment()
 
     def _debug(self, s):
         self.log.log(self.log.DEBUG, s)
@@ -1007,20 +957,6 @@ class Astrometry(object):
         qa = solver.getSolveStats()
         self.log.logdebug('qa: %s' % qa.toString())
         return wcs, qa
-
-    def _getIndexPath(self, fn):
-        if os.path.isabs(fn):
-            return fn
-        andir = os.getenv('ASTROMETRY_NET_DATA_DIR')
-        if andir is not None:
-            fn2 = os.path.join(andir, fn)
-            if os.path.exists(fn2):
-                return fn2
-
-        if os.path.exists(fn):
-            return os.path.abspath(fn)
-        else:
-            return None
 
     def _getMIndexesWithinRange(self, ra, dec, radius):
         '''
