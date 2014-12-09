@@ -3,7 +3,7 @@ import numpy
 import pyfits
 import itertools
 from lsst.pex.logging import getDefaultLog
-import lsst.meas.astrom.astrometry_net as an
+from .astrometry_net import multiindex_new, multiindex_add_index, INDEX_ONLY_LOAD_METADATA, healpixDistance
 from .config import AstrometryNetDataConfig
 
 
@@ -68,7 +68,7 @@ class MultiIndexCache(object):
         if self._mi is not None:
             return
         fn = getIndexPath(self._filenameList[0])
-        self._mi = an.multiindex_new(fn)
+        self._mi = multiindex_new(fn)
         if self._mi is None:
             raise RuntimeError('Failed to read stars from multiindex filename "%s"' % fn)
         for i, fn in enumerate(self._filenameList[1:]):
@@ -77,7 +77,7 @@ class MultiIndexCache(object):
                 continue
             fn = getIndexPath(fn)
             self.log.logdebug('Reading index from multiindex file "%s"' % fn)
-            if an.multiindex_add_index(self._mi, fn, an.INDEX_ONLY_LOAD_METADATA):
+            if multiindex_add_index(self._mi, fn, INDEX_ONLY_LOAD_METADATA):
                 raise RuntimeError('Failed to read index from multiindex filename "%s"' % fn)
             ind = self._mi[i]
             self.log.logdebug('  index %i, hp %i (nside %i), nstars %i, nquads %i' %
@@ -105,7 +105,7 @@ class MultiIndexCache(object):
 
         ra, dec and distance are in degrees (astrometry.net standard).
         """
-        return an.healpixDistance(self._healpix, self._nside, ra, dec).asDegrees() <= distance;
+        return healpixDistance(self._healpix, self._nside, ra, dec).asDegrees() <= distance;
 
     def __getitem__(self, i):
         self.reload()

@@ -12,6 +12,7 @@ import lsst.meas.algorithms.utils as maUtils
 
 from .config import MeasAstromConfig, AstrometryNetDataConfig
 import sip as astromSip
+from lsst.meas.astrom.multiindex import AstrometryNetCatalog
 
 import numpy as np # for isfinite()
 
@@ -151,7 +152,6 @@ class Astrometry(object):
         self._readIndexFiles()
 
     def _readIndexFiles(self):
-        from lsst.meas.astrom.multiindex import AstrometryNetCatalog
         self.multiInds = AstrometryNetCatalog.fromEnvironment()
 
     def _debug(self, s):
