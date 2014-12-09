@@ -52,7 +52,7 @@ class PhotoCalConfig(pexConf.Config):
         doc="Name of the flag field that is set for sources used in photometric calibration"
         )
     fluxField = pexConf.Field(
-        dtype=str, default="flux.sinc", optional=False,
+        dtype=str, default="flux.naive", optional=False,
         doc="Name of the source flux field to use.  The associated flag field\n"\
             "('<name>.flags') will be implicitly included in badFlags.\n"
         )
