@@ -90,10 +90,10 @@ class PhotoCalTest(unittest.TestCase):
         path = os.path.join(mypath, "examples")
         self.srcCat = afwTable.SourceCatalog.readFits(os.path.join(path, "v695833-e0-c000.xy.fits"))
         #
-        # The PhotoCal code uses algorithm names (e.g. "flux.sinc") not slots, so we need to add
+        # The PhotoCal code uses algorithm names (e.g. "flux.naive") not slots, so we need to add
         # further columns to self.srcCat
         #
-        extraFluxColumn = "flux.sinc"
+        extraFluxColumn = "flux.naive"
         self.srcCat = copyCatalogAddingField(self.srcCat, extraFluxColumn)
 
         self.srcCat.get(extraFluxColumn)[:] = self.srcCat.getPsfFlux()
