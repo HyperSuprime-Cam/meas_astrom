@@ -105,7 +105,8 @@ class MultiIndexCache(object):
 
         ra, dec and distance are in degrees (astrometry.net standard).
         """
-        return healpixDistance(self._healpix, self._nside, ra, dec).asDegrees() <= distance;
+        return (self._nside == 0 or
+                healpixDistance(self._healpix, self._nside, ra, dec).asDegrees() <= distance)
 
     def __getitem__(self, i):
         self.reload()
