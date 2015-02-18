@@ -103,7 +103,43 @@ class PhotoCalTask(pipeBase.Task):
         goodFlags = [schema.find(prefix + name).key for name in self.config.goodFlags]
         badFlags = [schema.find(prefix + self.config.fluxField + ".flags").key]
         badFlags.extend(schema.find(prefix + name).key for name in self.config.badFlags)
-        return pipeBase.Struct(flux=flux, fluxErr=fluxErr, goodFlags=goodFlags, badFlags=badFlags)
+        try:
+            starGal = schema.find(prefix + "classification.extendedness").key
+        except KeyError:
+            starGal = None
+        return pipeBase.Struct(flux=flux, fluxErr=fluxErr, goodFlags=goodFlags, badFlags=badFlags,
+                               starGal=starGal)
+
+    def isUnresolved(self, source, starGalKey=None):
+        """Return whether the provided source is unresolved or not
+
+        This particular implementation is designed to work with
+        the classification.extendedness=0.0 or 1.0 scheme.  Because
+        of the diversity of star/galaxy classification outputs (binary
+        decision vs probabilities; signs), it's difficult to make this
+        configurable without using code.  This method should therefore
+        be overridden to use the appropriate classification output.
+
+        @param[in] source  Source to test
+        @param[in] keys  Struct of schema keys for source
+        """
+        return source.get(starGalKey) < 0.5 if starGalKey is not None else True
+
+    def selectUnresolved(self, matches, keys):
+        """Select matches that appear to be unresolved in our data
+
+        The selection of matches that are unresolved in the reference catalog
+        is done as part of selectMatches.
+
+        @param[in] matches  Matches from which to select
+        @param[in] keys  Struct of schema keys for source
+        @return ReferenceMatchVector with stars only
+        """
+        result = afwTable.ReferenceMatchVector()
+        for m in matches:
+            if self.isUnresolved(m.second, keys.starGal):
+                result.append(m)
+        return result
 
     @pipeBase.timeMethod
     def selectMatches(self, matches, keys, frame=None):
@@ -310,13 +346,14 @@ class PhotoCalTask(pipeBase.Task):
             )
 
     @pipeBase.timeMethod
-    def run(self, exposure, matches, prefix=""):
+    def run(self, exposure, matches, prefix="", doSelectUnresolved=True):
         """Do photometric calibration - select matches to use and (possibly iteratively) compute
         the zero point.
 
         @param[in]  exposure   Exposure upon which the sources in the matches were detected.
         @param[in]  matches    Input ReferenceMatchVector (will not be modified).
         @param[in]  prefix     Field name prefix to be included in all flag field names.
+        @param[in]  doSelectUnresolved  Attempt to select only unresolved sources from input catalog?
         
         @return Struct of:
            calib ------- Calib object containing the zero point
@@ -344,6 +381,8 @@ class PhotoCalTask(pipeBase.Task):
             frame = None
 
         keys = self.getKeys(matches[0].second.schema, prefix=prefix)
+        if doSelectUnresolved:
+            matches = self.selectUnresolved(matches, keys)
         matches = self.selectMatches(matches, keys, frame=frame)
         arrays = self.extractMagArrays(matches, exposure.getFilter().getName(), keys)
 
