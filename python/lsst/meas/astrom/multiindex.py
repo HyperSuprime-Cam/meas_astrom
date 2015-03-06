@@ -54,7 +54,7 @@ class MultiIndexCache(object):
         determined by reading the indices, so this is not very efficient.
         """
         self = cls(filenameList, 0, 0)
-        self.read()
+        self.reload()
         healpix = set(self[i].healpix for i in range(len(self)))
         nside = set(self[i].hpnside for i in range(len(self)))
         assert len(healpix) == 1
