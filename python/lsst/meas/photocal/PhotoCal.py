@@ -451,6 +451,7 @@ class PhotoCalTask(pipeBase.Task):
 
         i = np.argsort(dmag)
         dmag = dmag[i]
+        ref = ref[i]
         
         if srcErr is not None:
             dmagErr = srcErr[i]
@@ -561,12 +562,12 @@ class PhotoCalTask(pipeBase.Task):
                         axes.errorbar(ref[bad], dmag[bad] - center, yerr=dmagErr[bad], 
                                       linestyle='', color='r')
 
-                    axes.plot((-100, 100), (0, 0), "g-")
+                    axes.axhline(0, ls="-", color='green')
                     for x in (-1, 1):
-                        axes.plot((-100, 100), x*0.05*np.ones(2), "g--")
+                        axes.axhline(x*0.05, ls="--", color='green')
 
                     axes.set_ylim(-1.1, 1.1)
-                    axes.set_xlim(24, 13)
+                    axes.set_xlim(13, 24)
                     axes.set_xlabel("Reference")
                     axes.set_ylabel("Reference - Instrumental")
 
