@@ -47,8 +47,12 @@ def checkSourceFlags(source, keys):
 class PhotoCalConfig(pexConf.Config):
 
     magLimit = pexConf.Field(dtype=float, doc="Don't use objects fainter than this magnitude", default=22.0)
-    outputField = pexConf.Field(
-        dtype=str, optional=True, default="classification.photometric",
+    candidateSourceField = pexConf.Field(
+        dtype=str, optional=True, default="calib.photocal.candidate",
+        doc="Name of the flag field that is set for sources that matched the photometric catalog"
+        )
+    usedSourceField = pexConf.Field(
+        dtype=str, optional=True, default="calib.photocal.used",
         doc="Name of the flag field that is set for sources used in photometric calibration"
         )
     fluxField = pexConf.Field(
@@ -86,15 +90,21 @@ class PhotoCalTask(pipeBase.Task):
 
     def __init__(self, schema, **kwds):
         """Create the task, pulling input keys from the schema and adding a flag field
-        'classification.photometric' that will be set for sources used to determine the
-        photometric calibration.
+        'calib.photocal.candidate' that will be set for sources matched when determining the
+        photometric calibration, and 'calib.photocal.used' for the ones that are actually used
         """
         pipeBase.Task.__init__(self, **kwds)
-        if self.config.outputField is not None:
-            self.output = schema.addField(self.config.outputField, type="Flag",
-                                          doc="set if source was used in photometric calibration")
+        if self.config.candidateSourceField is not None:
+            self.candidateSource = schema.addField(self.config.candidateSourceField, type="Flag",
+                                doc="set if source matched the catalog used in photometric calibration")
         else:
-            self.output = None
+            self.candidateSource = None
+
+        if self.config.usedSourceField is not None:
+            self.usedSource = schema.addField(self.config.usedSourceField, type="Flag",
+                                doc="set if source matched the catalog used in photometric calibration")
+        else:
+            self.usedSource = None
 
     def getKeys(self, schema, prefix=""):
         """Return a struct containing the source catalog keys for fields used by PhotoCalTask."""
@@ -257,8 +267,8 @@ class PhotoCalTask(pipeBase.Task):
 
         result = afwTable.ReferenceMatchVector()
         for m in matches:
-            if self.output is not None:
-                m.second.set(self.output, True)
+            if self.candidateSource is not None:
+                m.second.set(self.candidateSource, True)
             result.append(m)
         return result
 
@@ -351,14 +361,14 @@ class PhotoCalTask(pipeBase.Task):
         the zero point.
 
         @param[in]  exposure   Exposure upon which the sources in the matches were detected.
-        @param[in]  matches    Input ReferenceMatchVector (will not be modified).
+        @param[in]  matches    Input ReferenceMatchVector (will not be modified except to set flags).
         @param[in]  prefix     Field name prefix to be included in all flag field names.
         @param[in]  doSelectUnresolved  Attempt to select only unresolved sources from input catalog?
         
         @return Struct of:
            calib ------- Calib object containing the zero point
            arrays ------ Magnitude arrays returned be extractMagArrays
-           matches ----- Final ReferenceMatchVector, as returned by selectMathces.
+           matches ----- Final ReferenceMatchVector, as returned by selectMatches.
         """
         global scatterPlot, fig
         import lsstDebug
@@ -380,6 +390,9 @@ class PhotoCalTask(pipeBase.Task):
         else:
             frame = None
 
+        for m in matches:
+            m.second.set(self.usedSource, False) # we may have changed our mind
+
         keys = self.getKeys(matches[0].second.schema, prefix=prefix)
         if doSelectUnresolved:
             matches = self.selectUnresolved(matches, keys)
@@ -395,7 +408,15 @@ class PhotoCalTask(pipeBase.Task):
         zp = None                           # initial guess
         r = self.getZeroPoint(arrays.srcMag, arrays.refMag, arrays.magErr, zp0=zp)
         zp = r.zp
-        self.log.info("Magnitude zero point: %f +/- %f from %d stars" % (r.zp, r.sigma, r.ngood))
+        ngood = np.sum(r.good)
+        self.log.info("Magnitude zero point: %f +/- %f from %d stars" % (r.zp, r.sigma, ngood))
+        #
+        # Record which sources we actually used
+        #
+        if self.usedSource is not None:
+            assert len(matches) == len(r.good)
+            for m, good in zip(matches, r.good):
+                m.second.set(self.usedSource, bool(good))
 
         flux0 = 10**(0.4*r.zp) # Flux of mag=0 star
         flux0err = 0.4*math.log(10)*flux0*r.sigma # Error in flux0
@@ -408,7 +429,7 @@ class PhotoCalTask(pipeBase.Task):
             matches = matches,
             zp = r.zp,
             sigma = r.sigma,
-            ngood = r.ngood,
+            ngood = ngood,
             )
 
     def getZeroPoint(self, src, ref, srcErr=None, zp0=None):
@@ -430,6 +451,7 @@ class PhotoCalTask(pipeBase.Task):
 
         i = np.argsort(dmag)
         dmag = dmag[i]
+        ref = ref[i]
         
         if srcErr is not None:
             dmagErr = srcErr[i]
@@ -540,12 +562,12 @@ class PhotoCalTask(pipeBase.Task):
                         axes.errorbar(ref[bad], dmag[bad] - center, yerr=dmagErr[bad], 
                                       linestyle='', color='r')
 
-                    axes.plot((-100, 100), (0, 0), "g-")
+                    axes.axhline(0, ls="-", color='green')
                     for x in (-1, 1):
-                        axes.plot((-100, 100), x*0.05*np.ones(2), "g--")
+                        axes.axhline(x*0.05, ls="--", color='green')
 
                     axes.set_ylim(-1.1, 1.1)
-                    axes.set_xlim(24, 13)
+                    axes.set_xlim(13, 24)
                     axes.set_xlabel("Reference")
                     axes.set_ylabel("Reference - Instrumental")
 
@@ -590,7 +612,7 @@ class PhotoCalTask(pipeBase.Task):
                 return pipeBase.Struct(
                     zp = center,
                     sigma = sig,
-                    ngood = len(dmag)
+                    good = good
                     )
             elif ngood == old_ngood:
                 break
@@ -605,5 +627,5 @@ class PhotoCalTask(pipeBase.Task):
         return pipeBase.Struct(
             zp = np.average(dmag, weights=dmagErr),
             sigma = np.std(dmag, ddof=1),
-            ngood = len(dmag)
+            good = good
             )
