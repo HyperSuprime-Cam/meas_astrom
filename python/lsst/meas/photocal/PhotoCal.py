@@ -444,17 +444,17 @@ class PhotoCalTask(pipeBase.Task):
         residuals with a tight core and asymmetrical outliers will start in the core.  We use the width of
         this core to set our maximum sigma (see 2.)  
         """
-
+        nMatch = len(ref)
         sigmaMax = self.config.sigmaMax
 
         dmag = ref - src
 
-        i = np.argsort(dmag)
-        dmag = dmag[i]
-        ref = ref[i]
+        iargsort = np.argsort(dmag)
+        dmag = dmag[iargsort]
+        ref = ref[iargsort]
         
         if srcErr is not None:
-            dmagErr = srcErr[i]
+            dmagErr = srcErr[iargsort]
         else:
             dmagErr = np.ones(len(dmag))
 
@@ -462,6 +462,7 @@ class PhotoCalTask(pipeBase.Task):
         ind_noNan = np.array([ i for i in range(len(dmag)) if (not np.isnan(dmag[i]) and not np.isnan(dmagErr[i])) ])
         dmag = dmag[ind_noNan]
         dmagErr = dmagErr[ind_noNan]
+        ref = ref[ind_noNan]
 
         IQ_TO_STDEV = 0.741301109252802;    # 1 sigma in units of interquartile (assume Gaussian)
 
@@ -612,7 +613,7 @@ class PhotoCalTask(pipeBase.Task):
                 return pipeBase.Struct(
                     zp = center,
                     sigma = sig,
-                    good = good
+                    good = np.zeros(nMatch, dtype=int)
                     )
             elif ngood == old_ngood:
                 break
@@ -621,11 +622,20 @@ class PhotoCalTask(pipeBase.Task):
                 ref = ref[good]
                 dmag = dmag[good]
                 dmagErr = dmagErr[good]
+        #
+        # Figure out which of the input arrays are good, backing out reordering and trimming,
+        # i.e. the goodMatches array is like good, but can be zipped with the matches array
+        # (or input arrays such as src or ref)
+        #
+        ind = np.arange(nMatch)
+        goodMatches = np.zeros_like(ind)
+        for i, g in zip(ind[iargsort][ind_noNan], good):
+            goodMatches[i] = g
 
         dmag = dmag[good]
         dmagErr = dmagErr[good]
         return pipeBase.Struct(
             zp = np.average(dmag, weights=dmagErr),
             sigma = np.std(dmag, ddof=1),
-            good = good
+            good = goodMatches
             )
