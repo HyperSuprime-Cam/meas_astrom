@@ -238,7 +238,6 @@ class PhotoCalTest(unittest.TestCase):
         schema = matches[0].second.schema
 
         config = photocal.PhotoCalConfig()
-        config.outputField = None    # schema is fixed because we already loaded the data
         config.applyColorTerms = False
         task = photocal.PhotoCalTask(config=config, schema=schema)
         pCal = task.run(self.exposure, matches)
