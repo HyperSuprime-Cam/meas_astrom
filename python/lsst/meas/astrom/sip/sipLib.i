@@ -44,6 +44,7 @@ Python interface to lsst::afw::meas::astrom::sip classes
 #include "lsst/afw/cameraGeom.h"
 #include "lsst/afw/table/Source.h"
 #include "lsst/afw/table/Match.h"
+#include "lsst/afw/geom/polygon.h"
 
 #define PY_ARRAY_UNIQUE_SYMBOL LSST_MEAS_ASTROM_NUMPY_API
 #include "numpy/arrayobject.h"
