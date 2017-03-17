@@ -38,5 +38,5 @@ from .astromLib import *
 from .catalogStarSelector import *
 from .directMatch import *
 from .fitSipDistortion import *
-
+from .denormalizeMatches import *
 from .version import *
