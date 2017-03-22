@@ -40,7 +40,10 @@ def denormalizeMatches(matches, matchMeta=None):
     refSchema = matches[0].first.getSchema()
     srcSchema = matches[0].second.getSchema()
 
-    refMapper, srcMapper = lsst.afw.table.SchemaMapper.join([refSchema, srcSchema], ["ref_", "src_"])
+    refMapper, srcMapper = lsst.afw.table.SchemaMapper.join(
+        lsst.afw.table.SchemaVector([refSchema, srcSchema]),
+        ["ref_", "src_"]
+    )
     schema = refMapper.editOutputSchema()
     distKey = schema.addField("distance", type=float, doc="Distance between ref and src")
 
